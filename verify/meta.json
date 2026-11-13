@@ -1,0 +1,11 @@
+{
+  "compilerversion": "v0.8.24+commit.e11b9ed9",
+  "bytecodeHexLength": {
+    "PaidMessenger": 10744,
+    "BaseTip": 28538,
+    "LabToken": 16066,
+    "LabNFT": 23448,
+    "LabItems": 19950,
+    "LabHub": 37126
+  }
+}
