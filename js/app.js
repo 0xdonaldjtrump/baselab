@@ -840,5 +840,12 @@
     }
     setInterval(() => { if (!document.hidden) refreshNetwork(); }, 15000);
   }
+  // shared with js/assistant.js (the Base Lab assistant)
+  window.LabApp = {
+    S, L, E, net, chainId, NAMES, tx, txOut, short, lc, fmt18, fmt6, amt18, amt6, addr, R, usdcR, connect, refreshBalances,
+    balancesText: () => balancesText(), errMsg, toast, confetti, ensureAllowance, eventArg, link, ex, svgImg,
+    getFee: () => S.fee,
+    markPassed: (id) => { if (S.cards[id]) { S.passed.add(id); savePassed(); render(); } },
+  };
   init().catch((e) => { console.error(e); toast(errMsg(e), 'err'); });
 })();
