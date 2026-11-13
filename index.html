@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Base Lab – test everything on Base</title>
+<meta name="description" content="A colourful on-chain playground with 50+ tests for Base: tokens, NFTs, ERC-1155, signatures, multicall, vaults, polls and more.">
+<meta name="theme-color" content="#faf7ff">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232f6bff'/%3E%3Cstop offset='.55' stop-color='%23ec4899'/%3E%3Cstop offset='1' stop-color='%23ffb020'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Ctext x='16' y='22' font-size='17' text-anchor='middle'%3E%F0%9F%A7%AA%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="logo"><span class="flask">🧪</span><span class="grad">Base Lab</span></div>
+  <span class="pill" id="netPill">Base</span>
+  <span class="spacer"></span>
+  <button id="btnConnect">Connect wallet</button>
+  <div class="chip hidden" id="meChip" title="Copy your address"><span class="dotav" id="meAv"></span><span class="mono" id="meAddr"></span></div>
+</header>
+
+<main class="wrap">
+  <section id="notDeployed" class="panel center-card hidden">
+    <div style="font-size:54px">🧪</div>
+    <h1>Base Lab is not live yet</h1>
+    <p class="muted">The Base Lab contracts have not been deployed on <b class="netName">Base</b> yet. It's a one-time launch.</p>
+    <a id="setupLink" href="setup.html"><button>Go to setup 🚀</button></a>
+  </section>
+
+  <div id="appRoot">
+    <section class="hero">
+      <div class="panel">
+        <h1>Test <span class="grad">everything</span> on Base ✨</h1>
+        <p>One playground, dozens of on-chain actions: send ETH and USDC, claim and send tokens, mint NFTs, sign messages, vote, lock funds, multicall and more. Every successful test lights up green.</p>
+        <div class="chips" id="netChips"><div class="kv">Network<b>…</b></div></div>
+        <div class="announce hidden" id="announce"></div>
+      </div>
+      <div class="panel progress-box">
+        <div class="ring" id="ring"><div><span id="progNum">0/0</span><small>tests passed</small></div></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:900;font-size:18px;margin-bottom:6px">Your balances</div>
+          <div class="chips" id="balChips"><div class="kv muted">Connect a wallet to see them</div></div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="light" id="btnRefresh" style="padding:7px 12px">🔄 Refresh</button>
+            <button class="light" id="btnReset" style="padding:7px 12px">♻️ Reset checklist</button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <nav class="nav" id="nav"></nav>
+    <div id="groups"></div>
+    <p class="muted small" style="text-align:center">Base Lab is a set of open smart contracts on <span class="netName">Base</span> · <a href="setup.html" id="setupLink2">contracts &amp; setup</a></p>
+  </div>
+</main>
+
+<div class="log collapsed" id="log">
+  <div class="lh" id="logHead">🧾 Transactions <span id="logCount">0</span></div>
+  <div class="lb" id="logBody"><div class="muted">No transactions yet.</div></div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script src="lib/ethers.umd.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

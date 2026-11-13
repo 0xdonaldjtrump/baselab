@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Base Lab – setup</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232f6bff'/%3E%3Cstop offset='.55' stop-color='%23ec4899'/%3E%3Cstop offset='1' stop-color='%23ffb020'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Ctext x='16' y='22' font-size='17' text-anchor='middle'%3E%F0%9F%A7%AA%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="logo"><span class="flask">🧪</span><span class="grad">Base Lab</span></div>
+  <span class="pill" id="netPill">Base</span>
+  <span class="spacer"></span>
+  <a href="index.html" id="homeLink"><button class="light">Open Base Lab →</button></a>
+</header>
+<main class="wrap" style="max-width:720px">
+  <section class="panel">
+    <h1 style="margin:0 0 6px">Launch Base Lab 🚀</h1>
+    <p class="muted" style="line-height:1.55">A one-time deployment of 4 contracts on <b id="netName">Base</b>. Every contract lands at a fixed address and the admin is always <span class="mono" id="adminAddr"></span>. Your wallet will ask you to confirm one transaction per contract that is not deployed yet.</p>
+    <div id="list"></div>
+    <button id="btnDeploy" style="width:100%;margin-top:14px;padding:14px" class="hidden">Connect wallet and launch</button>
+    <a id="openApp" class="hidden" href="index.html"><button style="width:100%;margin-top:14px;padding:14px">Open Base Lab 🎉</button></a>
+    <p class="muted small" style="margin-top:12px">Any wallet with a little ETH on Base can do this (usually well under a dollar in total). Test network: <a id="testLink" href="setup.html?net=84532">Base Sepolia</a>.</p>
+  </section>
+</main>
+<div class="toasts" id="toasts"></div>
+<script src="lib/ethers.umd.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/deploy-data.js"></script>
+<script src="js/setup.js"></script>
+</body>
+</html>
