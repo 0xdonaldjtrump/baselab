@@ -3,17 +3,17 @@ pragma solidity 0.8.24;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import {ERC721Burnable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {LabFeeClient} from "./LabFees.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /**
- * Base Lab NFT (LABNFT) – free test ERC-721 with fully on-chain SVG artwork.
+ * Base Lab NFT (LABNFT) – test ERC-721 with fully on-chain SVG artwork.
  * Features: mint with your own label and colour, transfer, approve,
  * setApprovalForAll, burn, enumeration of owned tokens, owner pause.
  */
-contract LabNFT is ERC721, ERC721Enumerable, ERC721Burnable, Ownable {
+contract LabNFT is ERC721, ERC721Enumerable, Ownable, LabFeeClient {
     using Strings for uint256;
 
     struct Art {
@@ -32,16 +32,21 @@ contract LabNFT is ERC721, ERC721Enumerable, ERC721Burnable, Ownable {
     error BadLabel();
     error MintPaused();
 
-    constructor(address owner_) ERC721("Base Lab NFT", "LABNFT") Ownable(owner_) {}
+    constructor(address owner_, address hub_) ERC721("Base Lab NFT", "LABNFT") Ownable(owner_) LabFeeClient(hub_) {}
 
     /// label: 1–24 characters A–Z, a–z, 0–9, space, - or _ ; hue: 0–359
-    function mint(string calldata label, uint16 hue) external returns (uint256 tokenId) {
+    function mint(string calldata label, uint16 hue) external payable withFee returns (uint256 tokenId) {
         if (mintPaused) revert MintPaused();
         _checkLabel(label);
         tokenId = ++totalMinted;
         _art[tokenId] = Art({label: label, hue: hue % 360, mintedAt: uint64(block.timestamp), minter: msg.sender});
         _safeMint(msg.sender, tokenId);
         emit Minted(tokenId, msg.sender, label, hue % 360);
+    }
+
+    /// Burns an NFT you own or are approved for (app fee applies).
+    function burn(uint256 tokenId) external payable withFee {
+        _update(address(0), tokenId, msg.sender);
     }
 
     function setMintPaused(bool paused_) external onlyOwner {

@@ -2,13 +2,13 @@
 pragma solidity 0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {LabFees} from "./LabFees.sol";
 
 /**
  * Base Lab Hub – one contract with many kinds of on-chain actions for testing Base:
@@ -16,8 +16,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  * time-locked deposits, multisend (ETH and any ERC-20), signature verification
  * (personal_sign and EIP-712), gasless signed notes (meta-transactions), multicall,
  * an intentional revert and an admin announcement.
+ *
+ * App fee: every action costs at least `fee` wei (paid in ETH, sent straight to
+ * `feeRecipient`). The Hub also stores the fee settings for the other Base Lab contracts.
  */
-contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
+contract LabHub is Ownable, EIP712, ReentrancyGuard, LabFees {
     using SafeERC20 for IERC20;
 
     // ------------------------------------------------------------------ types
@@ -58,6 +61,11 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
 
     // ------------------------------------------------------------------ storage
 
+    uint256 public constant MAX_FEE = 0.001 ether; // hard cap that protects users
+    uint256 public fee;
+    address public feeRecipient;
+    bool private _batching;
+
     string public announcement;
     uint256 public counter;
     uint256 public pings;
@@ -97,6 +105,8 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
     event Unlocked(uint256 indexed id, address indexed owner, uint256 amount);
     event MultiSent(address indexed from, address indexed token, uint256 recipients, uint256 total);
     event AnnouncementChanged(string text);
+    event FeeChanged(uint256 fee);
+    event FeeRecipientChanged(address recipient);
 
     // ------------------------------------------------------------------ errors
 
@@ -119,33 +129,53 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
     error WrongValue();
     error BadSignature();
     error SendFailed();
+    error FeeAboveMax();
+    error ZeroAddress();
+    error NotInBatch();
 
-    constructor(address owner_) Ownable(owner_) EIP712("Base Lab", "1") {}
+    constructor(address owner_, uint256 fee_) Ownable(owner_) EIP712("Base Lab", "1") {
+        if (fee_ > MAX_FEE) revert FeeAboveMax();
+        fee = fee_;
+        feeRecipient = owner_;
+        emit FeeChanged(fee_);
+        emit FeeRecipientChanged(owner_);
+    }
+
+    modifier withFee() {
+        _chargeFee(0);
+        _;
+    }
+
+    /// Functions that use msg.value as an amount cannot run inside a multicall batch.
+    modifier notInBatch() {
+        if (_batching) revert NotInBatch();
+        _;
+    }
 
     // ------------------------------------------------------------------ basics
 
-    function ping() external {
+    function ping() external payable withFee {
         pings += 1;
         emit Pinged(msg.sender, pings, block.number);
     }
 
-    function increment() external {
+    function increment() external payable withFee {
         counter += 1;
         emit CounterChanged(msg.sender, counter);
     }
 
-    function decrement() external {
+    function decrement() external payable withFee {
         if (counter == 0) revert LabError(1, "Counter is already zero");
         counter -= 1;
         emit CounterChanged(msg.sender, counter);
     }
 
-    function saveNumber(uint256 value) external {
+    function saveNumber(uint256 value) external payable withFee {
         numberOf[msg.sender] = value;
         emit NumberSaved(msg.sender, value);
     }
 
-    function saveNote(string calldata note) external {
+    function saveNote(string calldata note) external payable withFee {
         if (bytes(note).length > 280) revert TooLong();
         noteOf[msg.sender] = note;
         emit NoteSaved(msg.sender, note, false);
@@ -158,7 +188,7 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
 
     // ------------------------------------------------------------------ profiles
 
-    function register(string calldata name, string calldata bio, uint16 hue) external {
+    function register(string calldata name, string calldata bio, uint16 hue) external payable withFee {
         if (_profiles[msg.sender].exists) revert ProfileExists();
         _checkProfile(name, bio);
         _profiles[msg.sender] = Profile(name, bio, hue % 360, uint64(block.timestamp), uint64(block.timestamp), true);
@@ -166,7 +196,7 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
         emit ProfileRegistered(msg.sender, name);
     }
 
-    function updateProfile(string calldata name, string calldata bio, uint16 hue) external {
+    function updateProfile(string calldata name, string calldata bio, uint16 hue) external payable withFee {
         Profile storage p = _profiles[msg.sender];
         if (!p.exists) revert NoProfile();
         _checkProfile(name, bio);
@@ -177,7 +207,7 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
         emit ProfileUpdated(msg.sender, name);
     }
 
-    function deleteProfile() external {
+    function deleteProfile() external payable withFee {
         if (!_profiles[msg.sender].exists) revert NoProfile();
         delete _profiles[msg.sender];
         profileCount -= 1;
@@ -190,7 +220,7 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
 
     // ------------------------------------------------------------------ guestbook
 
-    function post(string calldata text) external returns (uint256 id) {
+    function post(string calldata text) external payable withFee returns (uint256 id) {
         uint256 len = bytes(text).length;
         if (len == 0) revert Empty();
         if (len > 280) revert TooLong();
@@ -199,7 +229,7 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
         emit Posted(id, msg.sender, text);
     }
 
-    function like(uint256 id) external {
+    function like(uint256 id) external payable withFee {
         if (id >= _posts.length || _posts[id].deleted) revert BadId();
         if (liked[id][msg.sender]) revert AlreadyLiked();
         liked[id][msg.sender] = true;
@@ -207,7 +237,7 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
         emit Liked(id, msg.sender, _posts[id].likes);
     }
 
-    function deletePost(uint256 id) external {
+    function deletePost(uint256 id) external payable withFee {
         if (id >= _posts.length || _posts[id].deleted) revert BadId();
         if (_posts[id].author != msg.sender) revert NotAuthor();
         _posts[id].deleted = true;
@@ -231,6 +261,8 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
 
     function createPoll(string calldata question, string[] calldata options, uint256 durationSeconds)
         external
+        payable
+        withFee
         returns (uint256 id)
     {
         if (bytes(question).length == 0 || bytes(question).length > 200) revert TooLong();
@@ -251,7 +283,7 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
         emit PollCreated(id, msg.sender, question);
     }
 
-    function vote(uint256 id, uint256 option) external {
+    function vote(uint256 id, uint256 option) external payable withFee {
         if (id >= _polls.length) revert BadId();
         Poll storage p = _polls[id];
         if (block.timestamp >= p.endsAt) revert PollClosed();
@@ -273,29 +305,35 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
 
     // ------------------------------------------------------------------ ETH vault and time locks
 
-    function deposit() external payable {
-        if (msg.value == 0) revert WrongValue();
-        vaultOf[msg.sender] += msg.value;
-        emit Deposited(msg.sender, msg.value);
+    /// Send `amount` + fee (or more – the extra goes to the fee recipient).
+    function deposit(uint256 amount) external payable notInBatch {
+        if (amount == 0) revert WrongValue();
+        _chargeFee(amount);
+        vaultOf[msg.sender] += amount;
+        emit Deposited(msg.sender, amount);
     }
 
-    function withdraw(uint256 amount) external nonReentrant {
+    function withdraw(uint256 amount) external payable nonReentrant {
+        _chargeFee(0);
         if (amount == 0 || vaultOf[msg.sender] < amount) revert InsufficientVault();
         vaultOf[msg.sender] -= amount;
         _send(msg.sender, amount);
         emit Withdrawn(msg.sender, amount);
     }
 
-    function lock(uint256 secondsToLock) external payable returns (uint256 id) {
-        if (msg.value == 0) revert WrongValue();
+    /// Send `amount` + fee (or more – the extra goes to the fee recipient).
+    function lock(uint256 amount, uint256 secondsToLock) external payable notInBatch returns (uint256 id) {
+        if (amount == 0) revert WrongValue();
         if (secondsToLock > 365 days) revert LabError(3, "Max lock is 365 days");
+        _chargeFee(amount);
         id = _locks.length;
         uint64 unlockAt = uint64(block.timestamp + secondsToLock);
-        _locks.push(Lock(msg.sender, unlockAt, false, msg.value));
-        emit Locked(id, msg.sender, msg.value, unlockAt);
+        _locks.push(Lock(msg.sender, unlockAt, false, amount));
+        emit Locked(id, msg.sender, amount, unlockAt);
     }
 
-    function unlock(uint256 id) external nonReentrant {
+    function unlock(uint256 id) external payable nonReentrant {
+        _chargeFee(0);
         if (id >= _locks.length) revert BadId();
         Lock storage l = _locks[id];
         if (l.owner != msg.sender) revert NotLockOwner();
@@ -332,16 +370,23 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
 
     // ------------------------------------------------------------------ multisend
 
-    function multisendEth(address[] calldata to, uint256[] calldata amounts) external payable nonReentrant {
+    /// Send sum(amounts) + fee (or more – the extra goes to the fee recipient).
+    function multisendEth(address[] calldata to, uint256[] calldata amounts) external payable nonReentrant notInBatch {
         if (to.length != amounts.length || to.length == 0 || to.length > 50) revert LengthMismatch();
         uint256 total;
         for (uint256 i = 0; i < amounts.length; i++) total += amounts[i];
-        if (total != msg.value) revert WrongValue();
+        if (total == 0) revert WrongValue();
+        _chargeFee(total);
         for (uint256 i = 0; i < to.length; i++) _send(to[i], amounts[i]);
         emit MultiSent(msg.sender, address(0), to.length, total);
     }
 
-    function multisendToken(IERC20 token, address[] calldata to, uint256[] calldata amounts) external nonReentrant {
+    function multisendToken(IERC20 token, address[] calldata to, uint256[] calldata amounts)
+        external
+        payable
+        nonReentrant
+        withFee
+    {
         if (to.length != amounts.length || to.length == 0 || to.length > 50) revert LengthMismatch();
         uint256 total;
         for (uint256 i = 0; i < to.length; i++) {
@@ -369,7 +414,11 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
     }
 
     /// Gasless note: `wallet` signs off-chain, anyone may submit the signature.
-    function saveNoteWithSignature(address wallet, string calldata note, bytes calldata signature) external {
+    function saveNoteWithSignature(address wallet, string calldata note, bytes calldata signature)
+        external
+        payable
+        withFee
+    {
         if (bytes(note).length > 280) revert TooLong();
         uint256 nonce = nonces[wallet];
         if (recoverNote(wallet, note, nonce, signature) != wallet) revert BadSignature();
@@ -382,7 +431,40 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
         return _domainSeparatorV4();
     }
 
+    // ------------------------------------------------------------------ multicall
+
+    /// Runs several Hub actions in ONE transaction and charges the fee only once.
+    /// Actions that use ETH as an amount (deposit, lock, multisendEth) are not allowed inside.
+    function multicall(bytes[] calldata data) external payable returns (bytes[] memory results) {
+        if (_batching) revert NotInBatch();
+        _chargeFee(0);
+        _batching = true;
+        results = new bytes[](data.length);
+        for (uint256 i = 0; i < data.length; i++) {
+            (bool ok, bytes memory r) = address(this).delegatecall(data[i]);
+            if (!ok) {
+                assembly {
+                    revert(add(r, 32), mload(r))
+                }
+            }
+            results[i] = r;
+        }
+        _batching = false;
+    }
+
     // ------------------------------------------------------------------ admin
+
+    function setFee(uint256 fee_) external onlyOwner {
+        if (fee_ > MAX_FEE) revert FeeAboveMax();
+        fee = fee_;
+        emit FeeChanged(fee_);
+    }
+
+    function setFeeRecipient(address recipient) external onlyOwner {
+        if (recipient == address(0)) revert ZeroAddress();
+        feeRecipient = recipient;
+        emit FeeRecipientChanged(recipient);
+    }
 
     function setAnnouncement(string calldata text) external onlyOwner {
         if (bytes(text).length > 280) revert TooLong();
@@ -413,6 +495,14 @@ contract LabHub is Ownable, Multicall, EIP712, ReentrancyGuard {
     function _checkProfile(string calldata name, string calldata bio) internal pure {
         if (bytes(name).length == 0) revert Empty();
         if (bytes(name).length > 48 || bytes(bio).length > 200) revert TooLong();
+    }
+
+    function _feeConfig() internal view override returns (uint256, address) {
+        return (fee, feeRecipient);
+    }
+
+    function _feeSkipped() internal view override returns (bool) {
+        return _batching;
     }
 
     function _send(address to, uint256 amount) internal {

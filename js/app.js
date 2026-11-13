@@ -9,7 +9,7 @@
   })();
   const net = L.networks[chainId];
   const NAMES = ['LabToken', 'LabNFT', 'LabItems', 'LabHub'];
-  const S = { ro: null, provider: null, signer: null, account: null, c: {}, cro: {}, usdc: null, usdcRo: null, cards: {}, passed: new Set() };
+  const S = { ro: null, provider: null, signer: null, account: null, c: {}, cro: {}, usdc: null, usdcRo: null, cards: {}, passed: new Set(), fee: BigInt(window.LAB.defaultFeeWei || '11000000000000') };
   const lc = (a) => (a || '').toLowerCase();
   const short = (a) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '');
   const ex = (kind, v) => (net.explorer ? net.explorer + '/' + kind + '/' + v : null);
@@ -65,6 +65,9 @@
     BadLabel: () => 'Label: 1–24 characters, letters, digits, space, - or _.',
     InsufficientVault: () => 'Not enough ETH in your vault.',
     MintPaused: () => 'NFT minting is paused by the admin.',
+    FeeTooLow: (a) => 'App fee missing – this action needs at least ' + E.formatEther(a[0]) + ' ETH.',
+    FeeAboveMax: () => 'The app fee can be at most 0.001 ETH.',
+    NotInBatch: () => 'This action cannot run inside a multicall.',
   };
   function decodeErr(e) {
     let name = e && e.revert && e.revert.name, args = e && e.revert && e.revert.args;
@@ -171,7 +174,7 @@
   T('network', 'net-est', '⛽ Estimate gas', 'How much gas and ETH a simple ping() would cost right now.', [], async () => {
     const gas = await S.c.LabHub.ping.estimateGas();
     const fee = await S.provider.getFeeData();
-    return `ping() ≈ ${gas} gas\n≈ ${E.formatEther(gas * (fee.gasPrice || 0n))} ETH at the current gas price`;
+    return `ping() ≈ ${gas} gas\n≈ ${E.formatEther(gas * (fee.gasPrice || 0n))} ETH network fee at the current gas price\n+ ${E.formatEther(S.fee)} ETH app fee`;
   }, { btn: 'Estimate' });
   T('network', 'net-sign', '✍️ Sign a message', 'personal_sign – then the contract recovers who signed it (free, no gas).', [{ k: 'msg', label: 'Message', def: 'Hello Base Lab!' }], async (v) => {
     const sig = await S.signer.signMessage(v.msg);
@@ -322,7 +325,7 @@
 
   // eth
   T('eth', 'eth-dep', '📥 Deposit to vault', 'Send ETH into your personal vault in the Hub.', [{ k: 'amt', label: 'Amount (ETH)', def: '0.00002' }], async (v) => {
-    const rc = await tx('Deposit ETH', S.c.LabHub.deposit({ value: amt18(v.amt) }));
+    const rc = await tx('Deposit ETH', S.c.LabHub.deposit(amt18(v.amt), { value: amt18(v.amt) }));
     return txOut('Vault balance: ' + fmt18(await S.c.LabHub.vaultOf(S.account), 6) + ' ETH', rc);
   });
   T('eth', 'eth-wd', '📤 Withdraw from vault', 'Take ETH back (empty = everything).', [{ k: 'amt', label: 'Amount (ETH)', def: '' }], async (v) => {
@@ -333,7 +336,7 @@
     return txOut('Withdrew ' + fmt18(a, 6) + ' ETH', rc);
   });
   T('eth', 'eth-lock', '⏳ Time-lock ETH', 'Lock ETH until a time in the future.', [{ k: 'amt', label: 'Amount (ETH)', def: '0.00001' }, { k: 'sec', label: 'Lock for (seconds)', def: '30', type: 'number' }], async (v) => {
-    const rc = await tx('Lock ETH', S.c.LabHub.lock(int(v.sec), { value: amt18(v.amt) }));
+    const rc = await tx('Lock ETH', S.c.LabHub.lock(amt18(v.amt), int(v.sec), { value: amt18(v.amt) }));
     const id = eventArg(rc, S.c.LabHub, 'Locked', 'id');
     const u = S.cards['eth-unlock'];
     if (u) u.inputs.id.value = String(id);
@@ -540,6 +543,7 @@
     const st = await R('LabHub').stats();
     box.append(el('div', 'muted', 'Owner ' + short(await R('LabHub').owner()) + ' · counter ' + st[0] + ' · pings ' + st[1] + ' · profiles ' + st[2] + ' · posts ' + st[3] + ' · polls ' + st[4] + ' · locks ' + st[5]));
     box.append(el('div', 'muted', 'LAB supply ' + fmt18(await R('LabToken').totalSupply(), 0) + ' · NFTs ' + (await R('LabNFT').totalSupply())));
+    box.append(el('div', 'muted', 'App fee ' + E.formatEther(await R('LabHub').fee()) + ' ETH per action → ' + short(await R('LabHub').feeRecipient())));
     return [box];
   }, { btn: 'Read', noWallet: true });
 
@@ -548,6 +552,16 @@
     const rc = await tx('Set announcement', S.c.LabHub.setAnnouncement(v.text));
     loadAnnouncement();
     return txOut('Announcement updated', rc);
+  }, { admin: true });
+  T('admin', 'adm-fee', '💸 App fee', 'Minimum ETH paid with every app action (max 0.001 ETH). 0.000011 ETH ≈ $0.02 at ~$1,875 per ETH.', [{ k: 'eth', label: 'Fee (ETH)', def: '0.000011' }], async (v) => {
+    const wei = amt18(v.eth);
+    const rc = await tx('Set app fee', S.c.LabHub.setFee(wei));
+    await loadFee();
+    return txOut('App fee is now ' + E.formatEther(S.fee) + ' ETH', rc);
+  }, { admin: true });
+  T('admin', 'adm-feeto', '🏦 Fee recipient', 'Wallet that receives all app fees.', [{ k: 'to', label: 'Recipient', ...ME }], async (v) => {
+    const rc = await tx('Set fee recipient', S.c.LabHub.setFeeRecipient(addr(v.to)));
+    return txOut('Fees now go to ' + short(await S.c.LabHub.feeRecipient()), rc);
   }, { admin: true });
   T('admin', 'adm-mint', '🏭 Mint LAB', 'Owner-only minting.', [{ k: 'to', label: 'To', ...ME }, { k: 'amt', label: 'Amount (LAB)', def: '1000' }], async (v) => {
     const rc = await tx('Mint LAB', S.c.LabToken.mint(addr(v.to), amt18(v.amt)));
@@ -710,8 +724,41 @@
       const box = $('netChips');
       box.textContent = '';
       const kv = (k, v) => { const d = el('div', 'kv', k); d.appendChild(el('b', null, v)); return d; };
-      box.append(kv('Network', net.name), kv('Chain ID', String(chainId)), kv('Block', '#' + b), kv('Gas', Number(E.formatUnits(fee.gasPrice || 0n, 'gwei')).toFixed(4) + ' gwei'));
+      await loadFee();
+      box.append(kv('Network', net.name), kv('Chain ID', String(chainId)), kv('Block', '#' + b), kv('Gas', Number(E.formatUnits(fee.gasPrice || 0n, 'gwei')).toFixed(4) + ' gwei'), kv('App fee', E.formatEther(S.fee) + ' ETH'));
     } catch (e) { console.warn(e); }
+  }
+  async function loadFee() {
+    try { S.fee = await R('LabHub').fee(); } catch (e) { /* keep last known */ }
+  }
+
+  // ------------------------------------------------------------------ app fee
+  // Every Base Lab action sends the app fee (in ETH) together with the transaction.
+  const FEE_FNS = {
+    LabHub: ['ping', 'increment', 'decrement', 'saveNumber', 'saveNote', 'register', 'updateProfile', 'deleteProfile', 'post', 'like', 'deletePost', 'createPoll', 'vote', 'deposit', 'withdraw', 'lock', 'unlock', 'multisendEth', 'multisendToken', 'saveNoteWithSignature', 'multicall'],
+    LabToken: ['claim', 'burn', 'burnFrom'],
+    LabNFT: ['mint', 'burn'],
+    LabItems: ['mint', 'burn', 'burnBatch'],
+  };
+  const isOverrides = (x) => x && typeof x === 'object' && !Array.isArray(x) && ('value' in x || 'gasLimit' in x);
+  function withFee(name, c) {
+    const fns = new Set(FEE_FNS[name] || []);
+    const add = (args) => {
+      const a = args.slice();
+      const ov = isOverrides(a[a.length - 1]) ? a.pop() : {};
+      a.push({ ...ov, value: (ov.value ? BigInt(ov.value) : 0n) + S.fee });
+      return a;
+    };
+    return new Proxy(c, {
+      get(t, prop) {
+        const v = t[prop];
+        if (typeof prop !== 'string' || !fns.has(prop)) return v;
+        const call = (...args) => v(...add(args));
+        call.estimateGas = (...args) => v.estimateGas(...add(args));
+        call.staticCall = (...args) => v.staticCall(...add(args));
+        return call;
+      },
+    });
   }
   async function loadAnnouncement() {
     try {
@@ -745,7 +792,8 @@
     S.provider = new E.BrowserProvider(window.ethereum, 'any');
     S.signer = await S.provider.getSigner();
     S.account = await S.signer.getAddress();
-    for (const n of NAMES) S.c[n] = new E.Contract(L.contracts[n], L.abi[n], S.signer);
+    for (const n of NAMES) S.c[n] = withFee(n, new E.Contract(L.contracts[n], L.abi[n], S.signer));
+    await loadFee();
     S.usdc = new E.Contract(net.usdc, L.erc20Abi, S.signer);
     $('btnConnect').classList.add('hidden');
     $('meChip').classList.remove('hidden');

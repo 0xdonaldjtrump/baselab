@@ -2,17 +2,17 @@
 pragma solidity 0.8.24;
 
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
-import {ERC1155Burnable} from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Burnable.sol";
 import {ERC1155Supply} from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {LabFeeClient} from "./LabFees.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /**
- * Base Lab Items – a free test ERC-1155 collection (5 game items) with on-chain metadata.
+ * Base Lab Items – a test ERC-1155 collection (5 game items) with on-chain metadata.
  * Features: mint, safeTransferFrom, safeBatchTransferFrom, burn / burnBatch, total supply.
  */
-contract LabItems is ERC1155, ERC1155Burnable, ERC1155Supply, Ownable {
+contract LabItems is ERC1155, ERC1155Supply, Ownable, LabFeeClient {
     using Strings for uint256;
 
     uint256 public constant ITEM_TYPES = 5;
@@ -23,12 +23,27 @@ contract LabItems is ERC1155, ERC1155Burnable, ERC1155Supply, Ownable {
     error BadItem();
     error BadAmount();
 
-    constructor(address owner_) ERC1155("") Ownable(owner_) {}
+    constructor(address owner_, address hub_) ERC1155("") Ownable(owner_) LabFeeClient(hub_) {}
 
-    function mint(uint256 id, uint256 amount) external {
+    function mint(uint256 id, uint256 amount) external payable withFee {
         if (id == 0 || id > ITEM_TYPES) revert BadItem();
         if (amount == 0 || amount > MAX_PER_MINT) revert BadAmount();
         _mint(msg.sender, id, amount, "");
+    }
+
+    /// Burns items from `account` (yourself or an account that approved you). App fee applies.
+    function burn(address account, uint256 id, uint256 value) external payable withFee {
+        if (account != msg.sender && !isApprovedForAll(account, msg.sender)) {
+            revert ERC1155MissingApprovalForAll(msg.sender, account);
+        }
+        _burn(account, id, value);
+    }
+
+    function burnBatch(address account, uint256[] calldata ids, uint256[] calldata values) external payable withFee {
+        if (account != msg.sender && !isApprovedForAll(account, msg.sender)) {
+            revert ERC1155MissingApprovalForAll(msg.sender, account);
+        }
+        _burnBatch(account, ids, values);
     }
 
     function itemName(uint256 id) public pure returns (string memory) {
