@@ -1,0 +1,31 @@
+name: Base Lab Bot
+
+on:
+  schedule:
+    - cron: '41 7 * * *'   # every day at 07:41 UTC (08:41 in Poland in winter)
+  workflow_dispatch:       # "Run workflow" button for a manual run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: base-lab-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        working-directory: bot
+        run: npm install --no-audit --no-fund
+      - name: Run the bot
+        working-directory: bot
+        env:
+          BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
+        run: node bot.mjs
